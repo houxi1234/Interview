@@ -103,17 +103,262 @@
    - 单个量表长度超过8时
      - 若map中存放的所有元素（所有bin），小于最小树化容量（64），则不会转换为红黑树
      - 若map中存放的所有元素（所有bin），大于等于最小树化容量（64），则转换为红黑树
+
+   - size > capacity(桶的数量) * loadFactor(装载因子) 
+
+     - 默认情况下 size > 12 (16 * 0.75 = 12)   将进行扩容处理 
+     - 例
+       - 初始化一个 预计size = 100 的HashMap
+       - new HashMap(128)  -->不取2的幂，会默认初始化最靠近100的2的幂
+       - 扩容触发 size > 128 * 0.75 = 96
+       - 实际在size 大于96之后触发了扩容
+       - 所以初始化 new HashMap(256) 合适
+
    - 扩容过程
      - 红黑树
        - 一个节点标记为红色或黑色
+
        - 根节点是黑色
+
        - 如果一个节点是红色，那么它的子节点一定是黑色
+
        - 红色节点必须有两个黑色子节点
-       - 
+
+       - 对于每个节点，从该节点到其后代叶节点的简单路径上，均包含相同数目的黑色节点（保证了最长路径不超过最短路径的两倍）
+
+         ![1557028515150](C:\Users\houxi\AppData\Roaming\Typora\typora-user-images\1557028515150.png)
+
+     - 红黑树的插入
+
+       - RBTree为二叉搜索树，按照二叉搜索树的方法进行节点插入
+       - RBTree有颜色约束，在插入新节点之后要进行颜色调整
+       - 步骤
+         - 根节点为NULL，直接插入新节点，并将颜色设置为黑色
+         - 根节点不为NULL，找到要插入新节点的位置
+         - 插入新节点
+         - 判断新插入节点对全树颜色的影响，更新调整颜色
+
+   - 计算```Hash```值
+
+     - 根据存入的key-value对中的，key计算对应的hash值，然后放入相应的桶中。
+
+     - 根据key的hashcode与其hashcode右移16位的异或结果
+
+       - ```java
+         static final int hash(Object key) {
+                 int h;
+                 return (key == null) ? 0 : (h = key.hashCode()) ^ (h >>> 16);
+         }
+         ```
+
+     - 方法```hash(Object key)```
+
+       - ```(h = key.hashCode()) ^ (h >>> 16)```
+         - 直接取hash值，会丢失高位数据，增大冲突
+         - 这种方式又叫扰乱函数，其比直接取hash值冲突改了少10%左右
+
+     - hashcode是一个32位的值，用高16位与低16位进行异或，原因在于求index是是用 （n-1） & hash ，如果hashmap的capcity很小的话，那么对于两个高位不同，低位相同的hashcode，可能最终会装入同一个桶中。那么会造成hash冲突，好的散列函数，应该尽量在计算hash时，把所有的位的信息都用上，这样才能尽可能避免冲突。这就是为什么用高16位与低16位进行异或的原因。
+
+   - capcity 是 2 的幂
+
+     - 计算index时用的是```(n-1) & hash```,这样能保证```n-1```是全为```1```的二进制数，如果不全为```1```的话，存在某一位是```0```，那么```0,1```与```0```的```与```结果都是```0```，这样便有可能将hash不同的两个值最终装到一个桶中，造成冲突。
+
+   - index 计算
+
+     - ```(n-1) & hash``` 而不是 模运算``` hash % n```的好处（在HashTable中依旧是取模运算）
+       - 位运算消耗资源更少，更有效率
+       - 避免了hashcode为负数(溢出)的情况
+
+   - PUT 操作
+
+     - 流程图![1557045564565](C:\Users\houxi\AppData\Roaming\Typora\typora-user-images\1557045564565.png)
+
+     - ```java
+       final V putVal(int hash, K key, V value, boolean onlyIfAbsent, boolean evict) {
+               Node<K,V>[] tab; Node<K,V> p; int n, i;
+           	//判断 table 是否为空，或参数 length == 0 
+               if ((tab = table) == null || (n = tab.length) == 0)
+                   //初始化 tab 数组 方法--> resize()
+                   n = (tab = resize()).length;
+           	//判断当前桶是否有元素   计算存放位置 --> i = (n - 1) & hash
+               if ((p = tab[i = (n - 1) & hash]) == null)
+                   //无元素，初始化当前桶
+                   tab[i] = newNode(hash, key, value, null);
+               else {
+                   //有元素
+                   Node<K,V> e; K k;
+                   //判断桶中第一个元素的 hash值、key 是否相等
+                   if (p.hash == hash &&
+                       ((k = p.key) == key || (key != null && key.equals(k))))
+                       //相等则覆盖value值
+                       e = p;
+                   else if (p instanceof TreeNode)
+                       //判断是否是红黑树
+                       e = ((TreeNode<K,V>)p).putTreeVal(this, tab, hash, key, value);
+                   else {
+                       //链表
+                       for (int binCount = 0; ; ++binCount) {
+                           //下一个节点是否有元素 --> p.next
+                           if ((e = p.next) == null) {
+                               //下一个节点无元素，创建一个新的node
+                               p.next = newNode(hash, key, value, null);
+                               //新增节点之后，需判断链表长度是否 大于 TREEIFY_THRESHOLD = 8
+                               //大于则 执行 链表 ---> 红黑树转换 
+                               //方法 -->treeifyBin(tab, hash)
+                               if (binCount >= TREEIFY_THRESHOLD - 1) // -1 for 1st
+                                   treeifyBin(tab, hash);
+                               break;
+                           }
+                           //下一个节点有元素，判断hash 和 key 是否相同
+                           if (e.hash == hash &&
+                               ((k = e.key) == key || (key != null && key.equals(k))))
+                               break;
+                           p = e;
+                       }
+                   }
+                   if (e != null) { // existing mapping for key
+                       V oldValue = e.value;
+                       if (!onlyIfAbsent || oldValue == null)
+                           e.value = value;
+                       afterNodeAccess(e);
+                       return oldValue;
+                   }
+               }
+               ++modCount;
+           	//扩容判断
+           	//size > capacity(桶的数量) * loadFactor(装载因子)
+           	//size > 16 * 0.75
+           	//默认情况下 size > 12 将进行扩容处理
+               if (++size > threshold)
+                   resize();
+               afterNodeInsertion(evict);
+               return null;
+           }
+       ```
+
+   - ```resize()```操作
+
+     - ```java
+       final Node<K,V>[] resize() {
+           	//扩容前的数组 oldTab
+               Node<K,V>[] oldTab = table;
+           	//扩容前桶（capacity）的数量 oldCap
+               int oldCap = (oldTab == null) ? 0 : oldTab.length;
+           	//扩容前的 threshold(临界值) = capacity(桶的数量) * loadFactor(装载因子)
+               int oldThr = threshold;
+               int newCap, newThr = 0;
+               if (oldCap > 0) {
+                   //当前元素size 大于最大桶容量
+                   if (oldCap >= MAXIMUM_CAPACITY) {
+                       //扩容设置为最大值
+                       threshold = Integer.MAX_VALUE;
+                       //不进行扩容
+                       return oldTab;
+                   }
+                   //扩容前的容量 * 2 小于 最大临界容量 
+                   //且 扩容前的容量 大于 默认的初始化容量(16)
+                   else if ((newCap = oldCap << 1) < MAXIMUM_CAPACITY &&
+                            oldCap >= DEFAULT_INITIAL_CAPACITY)
+                       //扩容为原来的两倍
+                       newThr = oldThr << 1; // double threshold
+               }
+           	//旧容量 oldCap <= 0  oldThr > 0 及尚未初始化
+               else if (oldThr > 0) // initial capacity was placed in threshold
+                   newCap = oldThr;
+           	//旧容量 oldCap <= 0  oldThr <= 0 及尚未初始化
+               else {               // zero initial threshold signifies using defaults
+                   //capacity 使用默认值 16
+                   newCap = DEFAULT_INITIAL_CAPACITY;
+                   //threshold(临界值) 使用计算后的默认值 12  = 0.75 * 16
+                   newThr = (int)(DEFAULT_LOAD_FACTOR * DEFAULT_INITIAL_CAPACITY);
+               }
+           	//oldCap > 0 且 newThr == 0 
+               if (newThr == 0) {
+                   float ft = (float)newCap * loadFactor;
+                   newThr = (newCap < MAXIMUM_CAPACITY && ft < (float)MAXIMUM_CAPACITY 				? (int)ft : Integer.MAX_VALUE);
+               }
+               threshold = newThr;
+               @SuppressWarnings({"rawtypes","unchecked"})
+                   Node<K,V>[] newTab = (Node<K,V>[])new Node[newCap];
+               table = newTab;
+               if (oldTab != null) {
+                   //遍历旧哈希表的每个桶，将旧的哈希表中的桶复制到新的哈希表中
+                   for (int j = 0; j < oldCap; ++j) {
+                       Node<K,V> e;
+                       if ((e = oldTab[j]) != null) {
+                           oldTab[j] = null;
+                           //旧桶中只有一个元素node
+                           if (e.next == null)
+                               //将旧哈希表 的桶 放入 新哈希表 e.hash & (newCap - 1) 位置
+                               newTab[e.hash & (newCap - 1)] = e;                
+                           else if (e instanceof TreeNode)
+                               //桶中结构红黑树
+                               ((TreeNode<K,V>)e).split(this, newTab, j, oldCap);
+                           else { // preserve order
+                               //链表
+                               Node<K,V> loHead = null, loTail = null;
+                               Node<K,V> hiHead = null, hiTail = null;
+                               Node<K,V> next;
+                               do {
+                                   next = e.next;
+                                   if ((e.hash & oldCap) == 0) {
+                                       if (loTail == null)
+                                           loHead = e;
+                                       else
+                                           loTail.next = e;
+                                       loTail = e;
+                                   }
+                                   else {
+                                       if (hiTail == null)
+                                           hiHead = e;
+                                       else
+                                           hiTail.next = e;
+                                       hiTail = e;
+                                   }
+                               } while ((e = next) != null);
+                               if (loTail != null) {
+                                   loTail.next = null;
+                                   newTab[j] = loHead;
+                               }
+                               if (hiTail != null) {
+                                   hiTail.next = null;
+                                   newTab[j + oldCap] = hiHead;
+                               }
+                           }
+                       }
+                   }
+               }
+               return newTab;
+           }
+       ```
+
+     - 例： 重新计算hash，只需要看看原来的hash值新增的那个bit是1还是0就好了，是0的话索引没变（因为任何数与0与都依旧是0），是1的话index变成“原索引+oldCap”
+
+     - ![1557111332407](C:\Users\houxi\AppData\Roaming\Typora\typora-user-images\1557111332407.png)
+
+     - 面试![1557112086752](C:\Users\houxi\AppData\Roaming\Typora\typora-user-images\1557112086752.png)
 
 3. 说说你知道的几个Java集合类：list、set、queue、map实现类咯。。。
 
-4. 描述一下ArrayList和LinkedList各自实现和区别
+   - <https://blog.csdn.net/bn493235694/article/details/79600330>
+
+4. 描述一下ArrayList、LinkedList、Vestor各自实现和区别
+
+   - 同步性（线程安全）		
+     - ArrayList、LinkedList 不同步   及线程不安全
+     - Vestor 同步  线程安全 
+   - 数据
+     - ArrayList、Vestor 使用Object数组形式存储。 
+       - 扩容
+     - LinkedList 双向链表
+     - 末尾添加，ArrayList、LinkedList 开销一致
+     - 列中添加，ArrayList开销大
+     - 删除
+       - ArrayList中间插入或删除开销大
+       - LinkedList固定开销
+     - 随机访问
+       - ArrayList效率高
+       - LinkedList 开销大
 
 5. Java中的队列都有哪些，有什么区别。
 
