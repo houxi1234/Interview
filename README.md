@@ -368,6 +368,29 @@
 
 8. Java数组和链表两种结构的操作效率，在哪些情况下(从开头开始，从结尾开始，从中间开始)，哪些操作(插入，查找，删除)的效率高
 
+9. Final 修辞的String  
+
+   ```java
+   public static void main(String[] args) {
+           //常量- 编译期产生
+           //变量- 运行期产生
+           //常量
+           String a1 = "z";
+           //常量
+           final String a2 = "z";
+           //常量
+           String b = "za";
+           //变量 在编译期间 没进入常量池 运行期间   在堆产生 并返回引用（相当于new 一个 新的值）
+           String c1 = a1 + "a";
+           //常量 编译期间 计算出值  并在常量池中取值
+           String c2 = a2 + "a";
+           System.out.println(b == c1);
+           System.out.println(b == c2);
+       }
+   ```
+
+   
+
 **二、Java IO**
 
 > 1. 讲讲IO里面的常见类，字节流、字符流、接口、实现类、方法阻塞。
